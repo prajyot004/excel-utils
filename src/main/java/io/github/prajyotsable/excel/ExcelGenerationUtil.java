@@ -10,6 +10,7 @@ import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import java.io.BufferedOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Field;
@@ -23,7 +24,7 @@ public class ExcelGenerationUtil {
      * Rows held in heap before flushing to the on-disk temp file.
      * 5 000 → only ~200 flushes for 1 M rows (vs 1 000 flushes at window=1000).
      */
-    private static final int ROW_ACCESS_WINDOW  = 5_000;
+    private static final int ROW_ACCESS_WINDOW  = 500;
 
     /** 64 KB write buffer — batches final file writes, cuts OS syscall count. */
     private static final int OUTPUT_BUFFER_SIZE = 64 * 1024;
@@ -54,12 +55,49 @@ public class ExcelGenerationUtil {
      * @throws IOException              if the file cannot be written
      * @throws IllegalArgumentException if {@code records} is null or empty
      */
+    /**
+     * Generates an .xlsx file written to disk.
+     */
     public <T> void generateExcel(List<T> records, Class<T> type, String fileName)
             throws IOException {
-
         if (records == null || records.isEmpty()) {
             throw new IllegalArgumentException("Records list must not be null or empty");
         }
+        try (BufferedOutputStream bos = new BufferedOutputStream(
+                new FileOutputStream(fileName), OUTPUT_BUFFER_SIZE)) {
+            buildAndWrite(records, type, bos);
+        }
+        System.out.println("Excel generated successfully: " + fileName);
+    }
+
+    /**
+     * Streams the generated .xlsx directly into any {@link OutputStream}.
+     * <p>
+     * Designed for HTTP responses: Spring's {@code StreamingResponseBody} passes
+     * the raw response socket stream here, so rows flow straight to the client —
+     * zero intermediate byte[] buffer in the JVM heap.
+     *
+     * @param records        list of records to export
+     * @param type           {@code Class<T>}
+     * @param responseStream target stream (e.g. from {@code HttpServletResponse})
+     */
+    public <T> void streamExcelToResponse(List<T> records, Class<T> type, OutputStream responseStream)
+            throws IOException {
+        if (records == null || records.isEmpty()) {
+            throw new IllegalArgumentException("Records list must not be null or empty");
+        }
+        buildAndWrite(records, type, responseStream);
+    }
+
+    // ── Private core ──────────────────────────────────────────────────────────
+
+    /**
+     * Builds the SXSSF workbook and writes it to {@code outputStream}.
+     * Shared by {@link #generateExcel} (file) and
+     * {@link #streamExcelToResponse} (HTTP response).
+     */
+    private <T> void buildAndWrite(List<T> records, Class<T> type, OutputStream outputStream)
+            throws IOException {
 
         Field[]        fields  = type.getDeclaredFields();
         MethodHandle[] getters = buildGetters(fields);  // built once, reused every row
@@ -68,7 +106,6 @@ public class ExcelGenerationUtil {
         try (SXSSFWorkbook workbook = new SXSSFWorkbook(ROW_ACCESS_WINDOW)) {
 
             // Compression OFF: gzip-ing each flush adds ~10-20 s for 1 M rows.
-            // Temp files are deleted by workbook.dispose() right after the write.
             workbook.setCompressTempFiles(false);
 
             Sheet sheet = workbook.createSheet(type.getSimpleName());
@@ -99,14 +136,9 @@ public class ExcelGenerationUtil {
                 }
             }
 
-            // ── Write to file ─────────────────────────────────────────────────
-            try (BufferedOutputStream bos = new BufferedOutputStream(
-                    new FileOutputStream(fileName), OUTPUT_BUFFER_SIZE)) {
-                workbook.write(bos);
-            }
-
+            // ── Write to stream ───────────────────────────────────────────────
+            workbook.write(outputStream);
             workbook.dispose(); // delete POI temp files from disk
-            System.out.println("Excel generated successfully: " + fileName);
         }
     }
 

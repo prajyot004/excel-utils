@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CSV Download</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #f4f6f8;
+    }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.1);
+      padding: 40px 50px;
+      text-align: center;
+    }
+    h1 { font-size: 1.4rem; color: #333; margin-bottom: 8px; }
+    p  { color: #666; margin-bottom: 24px; }
+    button {
+      padding: 12px 28px;
+      font-size: 1rem;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    button:hover:not(:disabled) { background: #1d4ed8; }
+    button:disabled { background: #93c5fd; cursor: not-allowed; }
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 0;
+    }
+    .btn-excel { background: #16a34a; }
+    .btn-excel:hover:not(:disabled) { background: #15803d; }
+    #status {
+      margin-top: 16px;
+      font-size: .9rem;
+      color: #555;
+      min-height: 20px;
+    }
+    #progress {
+      margin-top: 10px;
+      width: 100%;
+      height: 8px;
+      border-radius: 4px;
+      accent-color: #2563eb;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h1>� Export Users</h1>
+  <p>Streams 1 000 000 rows directly from the server — no heap limit.</p>
+
+  <div class="btn-group">
+    <button id="csvBtn"   onclick="downloadCsv()">⬇ Download CSV</button>
+    <button id="excelBtn" onclick="downloadExcel()" class="btn-excel">⬇ Download Excel</button>
+  </div>
+  <progress id="progress" max="100"></progress>
+  <div id="status"></div>
+</div>
+
+<script src="download.js"></script>
+
+</body>
+</html>
