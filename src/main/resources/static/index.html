@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Export Users — Method Comparison</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #f4f6f8;
+    }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.1);
+      padding: 32px 40px;
+      text-align: center;
+      min-width: 460px;
+    }
+    h1 { font-size: 1.25rem; color: #333; margin-bottom: 4px; }
+    p  { color: #666; margin-bottom: 0; font-size: .9rem; }
+    button {
+      padding: 10px 6px;
+      font-size: .85rem;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background .2s;
+      width: 100%;
+    }
+    button:hover:not(:disabled) { background: #1d4ed8; }
+    button:disabled { background: #93c5fd; cursor: not-allowed; }
+    .section-label {
+      font-size: .68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: #9ca3af;
+      text-align: left;
+      margin: 18px 0 8px;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 4px;
+    }
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .btn-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+    }
+    .hint { font-size: .63rem; color: #9ca3af; }
+    .btn-purple { background: #7c3aed; }
+    .btn-purple:hover:not(:disabled) { background: #6d28d9; }
+    .btn-orange  { background: #ea580c; }
+    .btn-orange:hover:not(:disabled)  { background: #c2410c; }
+    .btn-gray    { background: #6b7280; }
+    .btn-gray:hover:not(:disabled)    { background: #4b5563; }
+    .btn-excel   { background: #16a34a; }
+    .btn-excel:hover:not(:disabled)   { background: #15803d; }
+    #status {
+      margin-top: 14px;
+      font-size: .85rem;
+      color: #555;
+      min-height: 20px;
+      white-space: pre-line;
+      text-align: left;
+    }
+    #progress {
+      margin-top: 10px;
+      width: 100%;
+      height: 6px;
+      border-radius: 4px;
+      accent-color: #2563eb;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h1>� Export Users</h1>
+  <p>Pick a method below — each button hits a different endpoint</p>
+
+  <div class="section-label">CSV Export (4 methods)</div>
+  <div class="btn-grid">
+    <div class="btn-item">
+      <button id="csvStreamBtn" onclick="downloadCsvStream()">⬇ Stream</button>
+      <span class="hint">streamCsvToResponse · zero heap · 1M rows</span>
+    </div>
+    <div class="btn-item">
+      <button id="csvBytesBtn" onclick="downloadCsvBytes()" class="btn-purple">⬇ Bytes</button>
+      <span class="hint">generateCsvAsBytes · Content-Length · 100K rows</span>
+    </div>
+    <div class="btn-item">
+      <button id="csvBase64Btn" onclick="downloadCsvBase64()" class="btn-orange">⬇ Base64</button>
+      <span class="hint">generateCsvAsBase64 · JSON body · 100K rows</span>
+    </div>
+    <div class="btn-item">
+      <button id="csvFileBtn" onclick="saveCsvToFile()" class="btn-gray">💾 Server File</button>
+      <span class="hint">generateCsvToFile · saves to server disk · 1M rows</span>
+    </div>
+  </div>
+
+  <div class="section-label">CSV Export — Custom Headers (4 methods)</div>
+  <div class="btn-grid">
+    <div class="btn-item">
+      <button id="csvCustomBtn" onclick="downloadCsvCustomHeaders()" class="btn-purple">⬇ CH Stream</button>
+      <span class="hint">streamCsvToResponse · custom headers · zero heap</span>
+    </div>
+    <div class="btn-item">
+      <button id="csvCustomBytesBtn" onclick="downloadCsvCustomHeadersBytes()" class="btn-purple">⬇ CH Bytes</button>
+      <span class="hint">generateCsvAsBytes · custom headers · Content-Length</span>
+    </div>
+    <div class="btn-item">
+      <button id="csvCustomBase64Btn" onclick="downloadCsvCustomHeadersBase64()" class="btn-orange">⬇ CH Base64</button>
+      <span class="hint">generateCsvAsBase64 · custom headers · JSON body</span>
+    </div>
+    <div class="btn-item">
+      <button id="csvCustomFileBtn" onclick="saveCsvCustomHeadersToFile()" class="btn-gray">💾 CH Server File</button>
+      <span class="hint">generateCsvToFile · custom headers · server disk</span>
+    </div>
+  </div>
+
+  <div class="section-label">Excel Export (4 methods)</div>
+  <div class="btn-grid">
+    <div class="btn-item">
+      <button id="excelBtn" onclick="downloadExcel()" class="btn-excel">⬇ Stream</button>
+      <span class="hint">streamExcelToResponse · zero heap · 1M rows</span>
+    </div>
+    <div class="btn-item">
+      <button id="excelBytesBtn" onclick="downloadExcelBytes()" class="btn-purple">⬇ Bytes</button>
+      <span class="hint">generateExcelAsBytes · Content-Length · 100K rows</span>
+    </div>
+    <div class="btn-item">
+      <button id="excelBase64Btn" onclick="downloadExcelBase64()" class="btn-orange">⬇ Base64</button>
+      <span class="hint">generateExcelAsBase64 · JSON body · 100K rows</span>
+    </div>
+    <div class="btn-item">
+      <button id="excelFileBtn" onclick="saveExcelToFile()" class="btn-gray">💾 Server File</button>
+      <span class="hint">generateExcel · saves to server disk · 1M rows</span>
+    </div>
+  </div>
+
+  <div class="section-label">Excel Export — Custom Headers (4 methods)</div>
+  <div class="btn-grid">
+    <div class="btn-item">
+      <button id="excelCustomBtn" onclick="downloadExcelCustomHeaders()" class="btn-excel">⬇ CH Stream</button>
+      <span class="hint">streamExcelToResponse · custom headers · zero heap</span>
+    </div>
+    <div class="btn-item">
+      <button id="excelCustomBytesBtn" onclick="downloadExcelCustomHeadersBytes()" class="btn-purple">⬇ CH Bytes</button>
+      <span class="hint">generateExcelAsBytes · custom headers · Content-Length</span>
+    </div>
+    <div class="btn-item">
+      <button id="excelCustomBase64Btn" onclick="downloadExcelCustomHeadersBase64()" class="btn-orange">⬇ CH Base64</button>
+      <span class="hint">generateExcelAsBase64 · custom headers · JSON body</span>
+    </div>
+    <div class="btn-item">
+      <button id="excelCustomFileBtn" onclick="saveExcelCustomHeadersToFile()" class="btn-gray">💾 CH Server File</button>
+      <span class="hint">generateExcel · custom headers · server disk</span>
+    </div>
+  </div>
+
+  <progress id="progress" max="100"></progress>
+  <div id="status"></div>
+</div>
+
+<script src="download.js?v=5"></script>
+
+</body>
+</html>
