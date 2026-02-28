@@ -26,7 +26,8 @@ public class ExcelGenerationUtil {
 
     /**
      * Rows held in heap before flushing to the on-disk temp file.
-     * 5 000 → only ~200 flushes for 1 M rows (vs 1 000 flushes at window=1000).
+     * 500 → ~2 000 flushes for 1 M rows (vs ~1 000 flushes at window=1000,
+     * and ~200 flushes at window=5 000).
      */
     private static final int ROW_ACCESS_WINDOW  = 500;
 
