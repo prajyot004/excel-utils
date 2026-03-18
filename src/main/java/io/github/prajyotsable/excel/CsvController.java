@@ -118,6 +118,91 @@ public class CsvController {
         }
 
         /**
+         * Accepts an uploaded Excel file (.xlsx) and streams NDJSON events that the
+         * frontend can consume incrementally.
+         *
+         * Endpoint: POST /api/users/upload/xlsx/to-json/events
+         * Form-data: file=<excel-file>
+         * Query params:
+         * - mode=first|all|name|index (default: first)
+         * - sheetName=<sheet-name> (required when mode=name)
+         * - sheetIndex=<0-based-index> (required when mode=index)
+         */
+        @PostMapping(value = "/upload/xlsx/to-json/events", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = "application/x-ndjson")
+        public ResponseEntity<StreamingResponseBody> uploadExcelToJsonEvents(
+                        @RequestParam("file") MultipartFile file,
+                        @RequestParam(value = "mode", defaultValue = "first") String mode,
+                        @RequestParam(value = "sheetName", required = false) String sheetName,
+                        @RequestParam(value = "sheetIndex", required = false) Integer sheetIndex) {
+
+                validateUploadedExcel(file);
+
+                StreamingResponseBody responseBody = outputStream -> {
+                        try (java.io.InputStream inputStream = file.getInputStream()) {
+                                String normalizedMode = mode == null ? "first"
+                                                : mode.trim().toLowerCase(java.util.Locale.ROOT);
+                                switch (normalizedMode) {
+                                        case "all":
+                                                excelToJsonUtil.streamAllSheetsAsNdjson(inputStream, outputStream);
+                                                break;
+                                        case "name":
+                                                if (sheetName == null || sheetName.trim().isEmpty()) {
+                                                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                                                        "sheetName is required when mode=name");
+                                                }
+                                                excelToJsonUtil.streamSheetByNameAsNdjson(inputStream, outputStream,
+                                                                sheetName);
+                                                break;
+                                        case "index":
+                                                if (sheetIndex == null) {
+                                                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                                                        "sheetIndex is required when mode=index");
+                                                }
+                                                if (sheetIndex < 0) {
+                                                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                                                        "sheetIndex must be >= 0");
+                                                }
+                                                excelToJsonUtil.streamSheetByIndexAsNdjson(inputStream, outputStream,
+                                                                sheetIndex);
+                                                break;
+                                        case "first":
+                                                excelToJsonUtil.streamFirstSheetAsNdjson(inputStream, outputStream);
+                                                break;
+                                        default:
+                                                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                                                                "Unsupported mode. Use first|all|name|index");
+                                }
+                        } catch (ResponseStatusException e) {
+                                throw e;
+                        } catch (RecordFormatException e) {
+                                throw new IOException(
+                                                "Failed to convert uploaded Excel to NDJSON: file has very large internal records. "
+                                                                + "Increase JVM system property excel.poi.byteArrayMaxOverride (bytes), "
+                                                                + "for example -Dexcel.poi.byteArrayMaxOverride=1073741824",
+                                                e);
+                        } catch (Exception e) {
+                                throw new IOException("Failed to convert uploaded Excel to NDJSON events", e);
+                        }
+                };
+
+                return ResponseEntity.ok()
+                                .contentType(MediaType.parseMediaType("application/x-ndjson"))
+                                .body(responseBody);
+        }
+
+        private void validateUploadedExcel(MultipartFile file) {
+                if (file == null || file.isEmpty()) {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Uploaded file is empty");
+                }
+
+                String originalFileName = file.getOriginalFilename();
+                if (originalFileName == null ||
+                                !originalFileName.toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx")) {
+                        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only .xlsx files are supported");
+                }
+        }
+
+        /**
          * Streams the CSV file to the frontend.
          *
          * The browser receives Content-Disposition: attachment, so it triggers
@@ -342,7 +427,7 @@ public class CsvController {
         /** Endpoint: GET /api/users/download/xlsx/file */
         @GetMapping("/download/xlsx/file")
         public ResponseEntity<Map<String, String>> saveExcelToFile() throws IOException {
-                List<UserRecord> records = TestDataGenerator.generateUsers(1_000_000);
+                List<UserRecord> records = TestDataGenerator.generateUsers(1_000_0000);
                 String path = "users_export.xlsx";
                 excelUtil.generateExcel(records, UserRecord.class, path);
                 return ResponseEntity.ok(Map.of(

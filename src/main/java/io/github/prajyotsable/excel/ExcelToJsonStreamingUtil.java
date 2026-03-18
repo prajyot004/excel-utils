@@ -90,8 +90,16 @@ public class ExcelToJsonStreamingUtil {
         }
     }
 
+    public void streamFirstSheetAsNdjson(InputStream excelInputStream, OutputStream outputStream) throws Exception {
+        streamSelectedSheetsAsNdjson(excelInputStream, outputStream, (index, name) -> index == 0, true, "first");
+    }
+
     public void streamAllSheetsAsJson(InputStream excelInputStream, OutputStream outputStream) throws Exception {
         streamSelectedSheetsAsJson(excelInputStream, outputStream, (index, name) -> true, false);
+    }
+
+    public void streamAllSheetsAsNdjson(InputStream excelInputStream, OutputStream outputStream) throws Exception {
+        streamSelectedSheetsAsNdjson(excelInputStream, outputStream, (index, name) -> true, false, "all");
     }
 
     public void streamSheetByIndexAsJson(InputStream excelInputStream, OutputStream outputStream, int targetSheetIndex)
@@ -104,6 +112,19 @@ public class ExcelToJsonStreamingUtil {
                 true);
     }
 
+    public void streamSheetByIndexAsNdjson(
+            InputStream excelInputStream,
+            OutputStream outputStream,
+            int targetSheetIndex) throws Exception {
+        if (targetSheetIndex < 0) {
+            throw new IllegalArgumentException("sheetIndex must be >= 0");
+        }
+        streamSelectedSheetsAsNdjson(excelInputStream, outputStream,
+                (index, name) -> index == targetSheetIndex,
+                true,
+                "index");
+    }
+
     public void streamSheetByNameAsJson(InputStream excelInputStream, OutputStream outputStream, String targetSheetName)
             throws Exception {
         String expectedName = targetSheetName == null ? "" : targetSheetName.trim();
@@ -113,6 +134,20 @@ public class ExcelToJsonStreamingUtil {
         streamSelectedSheetsAsJson(excelInputStream, outputStream,
                 (index, name) -> expectedName.equalsIgnoreCase(name),
                 true);
+    }
+
+    public void streamSheetByNameAsNdjson(
+            InputStream excelInputStream,
+            OutputStream outputStream,
+            String targetSheetName) throws Exception {
+        String expectedName = targetSheetName == null ? "" : targetSheetName.trim();
+        if (expectedName.isEmpty()) {
+            throw new IllegalArgumentException("sheetName cannot be blank");
+        }
+        streamSelectedSheetsAsNdjson(excelInputStream, outputStream,
+                (index, name) -> expectedName.equalsIgnoreCase(name),
+                true,
+                "name");
     }
 
     private void streamSelectedSheetsAsJson(
@@ -176,6 +211,72 @@ public class ExcelToJsonStreamingUtil {
         }
     }
 
+    private void streamSelectedSheetsAsNdjson(
+            InputStream excelInputStream,
+            OutputStream outputStream,
+            BiPredicate<Integer, String> selector,
+            boolean stopAfterFirstMatch,
+            String mode) throws Exception {
+
+        validateStreams(excelInputStream, outputStream);
+        configurePoiByteArrayOverride();
+
+        try (BufferedInputStream bis = new BufferedInputStream(excelInputStream);
+                OPCPackage opcPackage = OPCPackage.open(bis);
+                JsonGenerator generator = jsonFactory.createGenerator(outputStream)) {
+
+            XSSFReader reader = new XSSFReader(opcPackage);
+            StylesTable stylesTable = reader.getStylesTable();
+            SharedStrings sharedStrings = reader.getSharedStringsTable();
+            XSSFReader.SheetIterator sheetIterator = (XSSFReader.SheetIterator) reader.getSheetsData();
+            int flushEveryRows = resolveJsonFlushEveryRows();
+
+            writeNdjsonEvent(generator, false, event -> {
+                event.writeStringField("type", "streamStart");
+                event.writeStringField("mode", mode == null ? "" : mode);
+            });
+
+            int sheetIndex = 0;
+            int matchedSheetCount = 0;
+            long totalRecordCount = 0;
+
+            while (sheetIterator.hasNext()) {
+                try (InputStream sheetStream = sheetIterator.next()) {
+                    String sheetName = resolveSheetName(sheetIterator);
+                    boolean shouldProcess = selector.test(sheetIndex, sheetName);
+
+                    if (shouldProcess) {
+                        long sheetRecords = parseOneSheetToNdjson(
+                                sheetStream,
+                                sheetName,
+                                sheetIndex,
+                                stylesTable,
+                                sharedStrings,
+                                generator,
+                                flushEveryRows);
+
+                        matchedSheetCount++;
+                        totalRecordCount += sheetRecords;
+
+                        if (stopAfterFirstMatch) {
+                            break;
+                        }
+                    }
+                }
+                sheetIndex++;
+            }
+
+            final int completedSheetCount = matchedSheetCount;
+            final long completedRecordCount = totalRecordCount;
+            writeNdjsonEvent(generator, true, event -> {
+                event.writeStringField("type", "complete");
+                event.writeNumberField("sheetCount", completedSheetCount);
+                event.writeNumberField("totalRecordCount", completedRecordCount);
+            });
+            generator.flush();
+        }
+    }
+
     private static void configurePoiByteArrayOverride() {
         if (poiByteArrayOverrideConfigured) {
             return;
@@ -231,6 +332,34 @@ public class ExcelToJsonStreamingUtil {
         return handler.finish();
     }
 
+    private long parseOneSheetToNdjson(
+            InputStream sheetStream,
+            String sheetName,
+            int sheetIndex,
+            StylesTable stylesTable,
+            SharedStrings sharedStrings,
+            JsonGenerator generator,
+            int flushEveryRows) throws Exception {
+
+        ExcelSheetToNdjsonHandler handler = new ExcelSheetToNdjsonHandler(
+                generator,
+                sheetName,
+                sheetIndex,
+                flushEveryRows);
+        XMLReader parser = SAXHelper.newXMLReader();
+        DataFormatter formatter = new DataFormatter(Locale.ROOT);
+        XSSFSheetXMLHandler xmlHandler = new XSSFSheetXMLHandler(
+                stylesTable,
+                null,
+                sharedStrings,
+                handler,
+                formatter,
+                false);
+        parser.setContentHandler(xmlHandler);
+        parser.parse(new InputSource(sheetStream));
+        return handler.finish();
+    }
+
     private int resolveJsonFlushEveryRows() {
         String configured = System.getProperty(JSON_FLUSH_EVERY_ROWS_PROPERTY);
         if (configured == null || configured.trim().isEmpty()) {
@@ -259,6 +388,26 @@ public class ExcelToJsonStreamingUtil {
         }
         if (outputStream == null) {
             throw new IllegalArgumentException("Output stream cannot be null");
+        }
+    }
+
+    @FunctionalInterface
+    private interface NdjsonEventWriter {
+        void write(JsonGenerator generator) throws IOException;
+    }
+
+    private void writeNdjsonEvent(JsonGenerator generator, NdjsonEventWriter writer) throws IOException {
+        writeNdjsonEvent(generator, false, writer);
+    }
+
+    private void writeNdjsonEvent(JsonGenerator generator, boolean flushNow, NdjsonEventWriter writer)
+            throws IOException {
+        generator.writeStartObject();
+        writer.write(generator);
+        generator.writeEndObject();
+        generator.writeRaw('\n');
+        if (flushNow) {
+            generator.flush();
         }
     }
 
@@ -334,6 +483,156 @@ public class ExcelToJsonStreamingUtil {
             generator.writeNumberField("recordCount", recordCount);
             generator.writeEndObject();
             return recordCount;
+        }
+
+        private void buildHeaders(List<String> firstRowValues) {
+            headers.clear();
+            usedHeaderNames.clear();
+
+            for (int i = 0; i < firstRowValues.size(); i++) {
+                String raw = Objects.toString(firstRowValues.get(i), "").trim();
+                String candidate = raw.isEmpty() ? "column_" + (i + 1) : raw;
+                candidate = deduplicate(candidate);
+                headers.add(candidate);
+            }
+        }
+
+        private void buildDefaultHeaders(int size) {
+            headers.clear();
+            usedHeaderNames.clear();
+            for (int i = 0; i < size; i++) {
+                headers.add(deduplicate("column_" + (i + 1)));
+            }
+        }
+
+        private String deduplicate(String candidate) {
+            String normalized = candidate;
+            int suffix = 1;
+            while (usedHeaderNames.contains(normalized)) {
+                normalized = candidate + "_" + suffix;
+                suffix++;
+            }
+            usedHeaderNames.add(normalized);
+            return normalized;
+        }
+
+        private int resolveColumnIndex(String cellReference, int fallback) {
+            if (cellReference == null || cellReference.isEmpty()) {
+                return fallback;
+            }
+            int i = 0;
+            int index = 0;
+            while (i < cellReference.length() && Character.isLetter(cellReference.charAt(i))) {
+                char c = Character.toUpperCase(cellReference.charAt(i));
+                index = index * 26 + (c - 'A' + 1);
+                i++;
+            }
+            return Math.max(0, index - 1);
+        }
+    }
+
+    private final class ExcelSheetToNdjsonHandler implements XSSFSheetXMLHandler.SheetContentsHandler {
+
+        private final JsonGenerator generator;
+        private final List<String> headers = new ArrayList<>();
+        private final List<String> currentRowValues = new ArrayList<>();
+        private final Set<String> usedHeaderNames = new HashSet<>();
+        private final int flushEveryRows;
+        private final String sheetName;
+        private final int sheetIndex;
+        private int currentColumnIndex = -1;
+        private long recordCount = 0;
+
+        ExcelSheetToNdjsonHandler(JsonGenerator generator, String sheetName, int sheetIndex, int flushEveryRows)
+                throws IOException {
+            this.generator = generator;
+            this.flushEveryRows = flushEveryRows;
+            this.sheetName = sheetName == null ? "" : sheetName;
+            this.sheetIndex = sheetIndex;
+
+            writeNdjsonEvent(generator, true, event -> {
+                event.writeStringField("type", "sheetStart");
+                event.writeNumberField("sheetIndex", this.sheetIndex);
+                event.writeStringField("sheetName", this.sheetName);
+            });
+        }
+
+        @Override
+        public void startRow(int rowNum) {
+            currentRowValues.clear();
+            currentColumnIndex = -1;
+        }
+
+        @Override
+        public void endRow(int rowNum) {
+            try {
+                if (rowNum == 0) {
+                    buildHeaders(currentRowValues);
+                    writeHeadersEvent();
+                    return;
+                }
+                if (headers.isEmpty()) {
+                    buildDefaultHeaders(currentRowValues.size());
+                    writeHeadersEvent();
+                }
+
+                writeNdjsonEvent(generator, event -> {
+                    event.writeStringField("type", "row");
+                    event.writeNumberField("sheetIndex", sheetIndex);
+                    event.writeNumberField("rowIndex", rowNum);
+                    event.writeObjectFieldStart("data");
+                    for (int i = 0; i < headers.size(); i++) {
+                        String header = headers.get(i);
+                        String value = i < currentRowValues.size() ? currentRowValues.get(i) : "";
+                        event.writeStringField(header, value);
+                    }
+                    event.writeEndObject();
+                });
+
+                recordCount++;
+                if (flushEveryRows > 0 && recordCount % flushEveryRows == 0) {
+                    generator.flush();
+                }
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to stream NDJSON row", e);
+            }
+        }
+
+        @Override
+        public void cell(String cellReference, String formattedValue, XSSFComment comment) {
+            int cellColumnIndex = resolveColumnIndex(cellReference, currentColumnIndex + 1);
+            while (currentRowValues.size() < cellColumnIndex) {
+                currentRowValues.add("");
+            }
+            currentRowValues.add(Objects.toString(formattedValue, ""));
+            currentColumnIndex = cellColumnIndex;
+        }
+
+        @Override
+        public void headerFooter(String text, boolean isHeader, String tagName) {
+        }
+
+        long finish() throws IOException {
+            writeNdjsonEvent(generator, true, event -> {
+                event.writeStringField("type", "sheetEnd");
+                event.writeNumberField("sheetIndex", sheetIndex);
+                event.writeStringField("sheetName", sheetName);
+                event.writeNumberField("recordCount", recordCount);
+            });
+            return recordCount;
+        }
+
+        private void writeHeadersEvent() throws IOException {
+            writeNdjsonEvent(generator, true, event -> {
+                event.writeStringField("type", "headers");
+                event.writeNumberField("sheetIndex", sheetIndex);
+                event.writeStringField("sheetName", sheetName);
+                event.writeArrayFieldStart("headers");
+                for (String header : headers) {
+                    event.writeString(header);
+                }
+                event.writeEndArray();
+            });
         }
 
         private void buildHeaders(List<String> firstRowValues) {
