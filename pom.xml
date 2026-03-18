@@ -10,7 +10,7 @@
   <packaging>jar</packaging>
 
   <name>excel generation utils</name>
-  <description>A library which provides the excel generation logic that no need to write again and again </description>
+  <description>A reusable Java library for streaming CSV and Excel generation/parsing utilities.</description>
   <url>https://github.com/prajyotsable/stream-batch-insert</url>
 
   <licenses>
@@ -27,7 +27,6 @@
     </developer>
   </developers>
 
-
   <scm>
     <connection>scm:git:git://github.com/prajyotsable/stream-batch-insert.git</connection>
     <developerConnection>scm:git:ssh://github.com:prajyotsable/stream-batch-insert.git</developerConnection>
@@ -41,56 +40,25 @@
   </properties>
 
   <dependencies>
-
-    <!--    <dependency>-->
-    <!--      <groupId>org.apache.logging.log4j</groupId>-->
-    <!--      <artifactId>log4j-core</artifactId>-->
-    <!--      <version>2.25.3</version>-->
-    <!--    </dependency>-->
-
-    <dependency>
-      <groupId>org.apache.logging.log4j</groupId>
-      <artifactId>log4j-api</artifactId>
-      <version>2.25.3</version>
-    </dependency>
-
-    <!-- Source: https://mvnrepository.com/artifact/org.projectlombok/lombok -->
-    <dependency>
-      <groupId>org.projectlombok</groupId>
-      <artifactId>lombok</artifactId>
-      <version>1.18.42</version>
-      <scope>compile</scope>
-    </dependency>
-
-    <!-- Apache POI Streaming API for memory-efficient Excel generation -->
     <dependency>
       <groupId>org.apache.poi</groupId>
       <artifactId>poi-ooxml</artifactId>
       <version>5.2.5</version>
     </dependency>
 
-    <!-- Spring Boot Web – REST controller + embedded Tomcat -->
     <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-web</artifactId>
-      <version>3.4.2</version>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+      <version>2.18.2</version>
     </dependency>
-
   </dependencies>
 
   <build>
     <plugins>
-
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.2.5</version>
-      </plugin>
-
-      <plugin>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-maven-plugin</artifactId>
-        <version>3.4.2</version>
       </plugin>
 
       <plugin>
@@ -102,6 +70,7 @@
           <publishingServerId>central</publishingServerId>
         </configuration>
       </plugin>
+
     </plugins>
   </build>
 
